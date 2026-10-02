@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>One-Tap Habits</title>
+<style>
+:root{--bg:#000;--card:#0b0b0b;--ink:#fff;--mute:#8a8a8a;--line:#2a2a2a;--accent:#c6ff00;--on:#000;--flame:#c6ff00;--danger:#ff5c5c;color-scheme:dark;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 ui-rounded,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+main{max-width:480px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
+h1{margin:0;font-size:28px;letter-spacing:-.02em;line-height:1.1}
+.sub{color:var(--mute);font-size:14px;margin-top:4px}
+.link{background:none;border:0;color:var(--accent);font:inherit;font-weight:600;padding:8px 4px;cursor:pointer}
+.bar{height:6px;border-radius:3px;background:var(--line);margin-bottom:16px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+#list{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;align-items:center;gap:14px;min-height:64px;padding:10px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px;cursor:pointer;user-select:none;transition:transform .08s}
+.row:active{transform:scale(.98)}
+.row:focus-visible,.link:focus-visible,.add button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.chk{flex:none;width:34px;height:34px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;transition:background .15s,border-color .15s,transform .2s}
+.chk svg{width:18px;height:18px;stroke:var(--on);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:0;transition:opacity .1s}
+.row.done .chk{background:var(--accent);border-color:var(--accent);transform:scale(1.08)}
+.row.done .chk svg{opacity:1}
+.name{flex:1;font-size:18px;font-weight:600;overflow-wrap:anywhere}
+.row.done .name{color:var(--mute)}
+.streak{font-weight:700;color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
+.streak.live{color:var(--flame)}
+.edit-row{cursor:default}
+.edit-row input{flex:1;min-width:0;font:inherit;font-size:18px;font-weight:600;color:var(--ink);background:transparent;border:0;border-bottom:2px solid var(--line);padding:6px 0}
+.edit-row input:focus{outline:0;border-color:var(--accent)}
+.del{flex:none;background:none;border:0;color:var(--danger);font:inherit;font-weight:600;padding:10px 6px;cursor:pointer}
+.add{display:flex;gap:10px;margin-top:18px}
+.add input{flex:1;min-width:0;font:inherit;padding:14px 16px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.add input:focus{outline:3px solid var(--accent);outline-offset:0;border-color:var(--accent)}
+.add button{font:inherit;font-weight:700;padding:0 20px;border:0;border-radius:14px;background:var(--accent);color:var(--on);cursor:pointer}
+.empty{text-align:center;color:var(--mute);padding:36px 12px;border:1px dashed var(--line);border-radius:16px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Today</h1>
+      <div class="sub" id="sub"></div>
+    </div>
+    <button class="link" id="editBtn">Edit</button>
+  </header>
+  <div class="bar"><i id="fill"></i></div>
+  <div id="list"></div>
+  <div class="add">
+    <input id="newName" type="text" maxlength="40" placeholder="New habit, e.g. Drink water" aria-label="New habit name" enterkeyhint="done">
+    <button id="addBtn">Add</button>
+  </div>
+</main>
+<script>
+const KEY = 'onetap-habits-v1';
+let state = { habits: [], done: {} };
+let editing = false;
+
+try {
+  const raw = localStorage.getItem(KEY);
+  if (raw) { const p = JSON.parse(raw); if (p && Array.isArray(p.habits)) state = { habits: p.habits, done: p.done || {} }; }
+} catch (e) {}
+
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+function fmt(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+const today = () => fmt(new Date());
+const isDone = (id, date) => !!(state.done[id] && state.done[id][date]);
+
+function streak(id) {
+  const d = new Date();
+  if (!isDone(id, fmt(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (isDone(id, fmt(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
+function toggle(id) {
+  const t = today();
+  state.done[id] = state.done[id] || {};
+  if (state.done[id][t]) delete state.done[id][t]; else { state.done[id][t] = 1; try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
+  save(); render();
+}
+
+function addHabit() {
+  const input = document.getElementById('newName');
+  const name = input.value.trim();
+  if (!name) { input.focus(); return; }
+  state.habits.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name });
+  input.value = '';
+  save(); render();
+  input.focus();
+}
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+function render() {
+  const t = today();
+  const list = document.getElementById('list');
+  list.textContent = '';
+  const doneCount = state.habits.filter(h => isDone(h.id, t)).length;
+  const total = state.habits.length;
+  document.getElementById('sub').textContent =
+    new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) +
+    (total ? ' · ' + doneCount + ' of ' + total + ' done' : '');
+  document.getElementById('fill').style.width = total ? (doneCount / total * 100) + '%' : '0';
+  document.getElementById('editBtn').textContent = editing ? 'Done' : 'Edit';
+  document.getElementById('editBtn').style.visibility = total ? 'visible' : 'hidden';
+
+  if (!total) {
+    list.appendChild(el('div', 'empty', 'No habits yet. Add your first one below, then tap it each day.'));
+    return;
+  }
+
+  state.habits.forEach(h => {
+    if (editing) {
+      const row = el('div', 'row edit-row');
+      const inp = el('input'); inp.value = h.name; inp.maxLength = 40; inp.setAttribute('aria-label', 'Habit name');
+      inp.addEventListener('change', () => { const v = inp.value.trim(); if (v) { h.name = v; save(); } else inp.value = h.name; });
+      const del = el('button', 'del', 'Delete');
+      del.addEventListener('click', () => {
+        if (!confirmDelete(h)) return;
+        state.habits = state.habits.filter(x => x.id !== h.id); delete state.done[h.id]; save(); render();
+      });
+      row.append(inp, del);
+      list.appendChild(row);
+    } else {
+      const d = isDone(h.id, t), s = streak(h.id);
+      const row = el('div', 'row' + (d ? ' done' : ''));
+      row.tabIndex = 0; row.setAttribute('role', 'button'); row.setAttribute('aria-pressed', d);
+      const chk = el('span', 'chk');
+      chk.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+      const st = el('span', 'streak' + (s ? ' live' : ''), s ? '🔥 ' + s : '–');
+      row.append(chk, el('span', 'name', h.name), st);
+      row.addEventListener('click', () => toggle(h.id));
+      row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(h.id); } });
+      list.appendChild(row);
+    }
+  });
+}
+
+// Two-step delete without confirm() (dialogs can be blocked in embedded pages)
+let pendingDelete = null;
+function confirmDelete(h) {
+  if (pendingDelete === h.id) { pendingDelete = null; return true; }
+  pendingDelete = h.id;
+  document.querySelectorAll('.del').forEach(b => { if (b.closest('.edit-row').querySelector('input').value === h.name) b.textContent = 'Tap again'; });
+  setTimeout(() => { if (pendingDelete === h.id) { pendingDelete = null; if (editing) render(); } }, 2500);
+  return false;
+}
+
+document.getElementById('editBtn').addEventListener('click', () => { editing = !editing; pendingDelete = null; render(); });
+document.getElementById('addBtn').addEventListener('click', addHabit);
+document.getElementById('newName').addEventListener('keydown', e => { if (e.key === 'Enter') addHabit(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+
+render();
+</script>
+</body>
+</html>
